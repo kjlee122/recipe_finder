@@ -1,6 +1,10 @@
 
 "use strict";
 
+// ============================================
+// APPLICATION SETTINGS
+// ============================================
+
 const API = "https://www.themealdb.com/api/json/v1/1";
 
 const DAYS = [
@@ -10,27 +14,25 @@ const DAYS = [
 
 const PLAN_DAYS = 7;
 const MAX_RECIPES = 60;
+const RANDOM_RECIPES = 30;
 const PACKAGE_PENALTY = 0.12;
-
-const ML_PER_TSP = 4.92892;
-const ML_PER_TBSP = 14.7868;
-const ML_PER_CUP = 236.588;
-const G_PER_OZ = 28.3495;
-const G_PER_LB = 453.592;
 
 let weeklyPlan = [];
 let recipePool = [];
 let preferredIngredients = [];
 let isGenerating = false;
 
+// Cache previously downloaded and processed data.
+const recipeCache = new Map();
 const ingredientCache = new WeakMap();
 const nameCache = new WeakMap();
+const suitabilityCache = new WeakMap();
+
+const $ = id => document.getElementById(id);
 
 // ============================================
 // GENERAL HELPERS
 // ============================================
-
-const $ = id => document.getElementById(id);
 
 function setStatus(message) {
   if ($("status")) {
@@ -54,54 +56,6 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// ============================================
-// INGREDIENT NORMALIZATION
-// ============================================
-
-const PREPARATION = [
-  "finely chopped", "roughly chopped",
-  "thinly sliced", "finely diced",
-  "freshly grated", "finely minced",
-  "chopped", "diced", "minced",
-  "sliced", "peeled", "shredded",
-  "grated", "crushed", "cubed",
-  "julienned", "halved", "quartered",
-  "washed", "rinsed", "drained",
-  "seeded", "deseeded", "trimmed"
-];
-
-const VAGUE = [
-  "to taste", "to serve", "for serving",
-  "for frying", "as needed", "optional",
-  "pinch", "drizzle", "splash"
-];
-
-const ALIASES = {
-  onion: "onions",
-  tomato: "tomatoes",
-  potato: "potatoes",
-  carrot: "carrots",
-  egg: "eggs",
-  lemon: "lemons",
-  lime: "limes",
-  "garlic clove": "garlic",
-  "garlic cloves": "garlic",
-  "clove of garlic": "garlic",
-  "cloves of garlic": "garlic",
-  "bay leaf": "bay leaves",
-  "spring onion": "scallions",
-  "spring onions": "scallions",
-  scallion: "scallions",
-  "extra virgin olive oil": "olive oil",
-  "plain flour": "all-purpose flour",
-  "all purpose flour": "all-purpose flour",
-  "white sugar": "granulated sugar",
-  hotsauce: "hot sauce",
-  "chili powder": "chilli powder",
-  "green peppers": "green pepper",
-  "red peppers": "red pepper"
-};
-
 function removePhrases(value, phrases) {
   let text = String(value || "").toLowerCase();
 
@@ -118,6 +72,10 @@ function removePhrases(value, phrases) {
 
   return text.replace(/\s+/g, " ").trim();
 }
+
+// ============================================
+// INGREDIENT NORMALIZATION
+// ============================================
 
 function normalizeIngredient(name) {
   const cleaned = removePhrases(
@@ -148,15 +106,6 @@ function cleanMeasure(measure) {
 // ============================================
 // WATER EXCLUSION
 // ============================================
-
-const WATER_WORDS = new Set([
-  "boiling", "boiled", "warm", "hot",
-  "cold", "ice", "iced", "lukewarm",
-  "room", "temperature", "filtered",
-  "distilled", "tap", "fresh", "plain",
-  "chilled", "cool", "clean", "drinking",
-  "tepid", "heated", "potable"
-]);
 
 function isCookingWater(name) {
   const words = normalizeIngredient(name)
@@ -216,7 +165,48 @@ function ingredientNames(meal) {
 }
 
 // ============================================
-// API FUNCTIONS
+// BALANCED RECIPE FAMILIARITY
+// ============================================
+
+function scoreRecipeSuitability(meal) {
+  if (suitabilityCache.has(meal)) {
+    return suitabilityCache.get(meal);
+  }
+
+  const ingredients = [...ingredientNames(meal)]
+    .filter(name => !isCookingWater(name));
+
+  const common = ingredients.filter(
+    name => COMMON_INGREDIENTS.has(name)
+  ).length;
+
+  const accessibility = ingredients.length
+    ? common / ingredients.length
+    : 0;
+
+  const uncommon = ingredients.length - common;
+
+  const title = String(meal.strMeal || "")
+    .toLowerCase();
+
+  const familiarity = Math.min(
+    FAMILIAR_MEAL_KEYWORDS.filter(
+      keyword => title.includes(keyword)
+    ).length,
+    2
+  );
+
+  const score =
+    accessibility * RECIPE_WEIGHTS.accessibility +
+    familiarity * RECIPE_WEIGHTS.familiarity -
+    uncommon * RECIPE_WEIGHTS.uncommonIngredientPenalty;
+
+  suitabilityCache.set(meal, score);
+  return score;
+}
+
+// ============================================
+// API REQUESTS
 // ============================================
 
 async function fetchJSON(url) {
@@ -240,14 +230,24 @@ async function searchIngredient(name) {
 }
 
 async function fetchMeal(id) {
+  if (recipeCache.has(id)) {
+    return recipeCache.get(id);
+  }
+
   const data = await fetchJSON(
     `${API}/lookup.php?i=${encodeURIComponent(id)}`
   );
 
-  return data.meals?.[0] || null;
+  const meal = data.meals?.[0] || null;
+
+  if (meal) {
+    recipeCache.set(id, meal);
+  }
+
+  return meal;
 }
 
-async function buildRecipePool(ingredients) {
+async function buildRecipePool(ingredients, limit) {
   const searches = await Promise.allSettled(
     ingredients.map(searchIngredient)
   );
@@ -255,19 +255,20 @@ async function buildRecipePool(ingredients) {
   const unique = new Map();
 
   for (const result of searches) {
-    if (result.status === "fulfilled") {
-      for (const meal of result.value) {
-        unique.set(meal.idMeal, meal);
-      }
+    if (result.status !== "fulfilled") continue;
+
+    for (const meal of result.value) {
+      unique.set(meal.idMeal, meal);
     }
   }
 
   const candidates = shuffle(
     [...unique.values()]
-  ).slice(0, MAX_RECIPES);
+  ).slice(0, limit);
 
   const detailed = [];
 
+  // Download full recipes in batches.
   for (let i = 0; i < candidates.length; i += 10) {
     const batch = candidates.slice(i, i + 10);
 
@@ -289,16 +290,19 @@ async function buildRecipePool(ingredients) {
 }
 
 // ============================================
-// WEEKLY MEAL OPTIMIZATION
+// WEEKLY OPTIMIZATION
 // ============================================
 
 function scorePlan(plan) {
   const counts = new Map();
   const categories = new Map();
 
-  let preferences = 0;
+  let preferenceScore = 0;
+  let suitability = 0;
 
   for (const meal of plan) {
+    suitability += scoreRecipeSuitability(meal);
+
     for (const name of ingredientNames(meal)) {
       if (isCookingWater(name)) continue;
 
@@ -310,7 +314,7 @@ function scorePlan(plan) {
       if (preferredIngredients.some(
         preferred => name.includes(preferred)
       )) {
-        preferences++;
+        preferenceScore++;
       }
     }
 
@@ -324,36 +328,37 @@ function scorePlan(plan) {
   }
 
   let reuse = 0;
+  let repeatedCategories = 0;
 
   for (const count of counts.values()) {
     reuse += Math.max(0, count - 1);
   }
-
-  let repeatedCategories = 0;
 
   for (const count of categories.values()) {
     repeatedCategories += Math.max(0, count - 1);
   }
 
   return (
-    reuse * 3 +
-    preferences * 2 -
-    counts.size * 0.4 -
-    repeatedCategories * 0.5
+    reuse * RECIPE_WEIGHTS.ingredientReuse +
+    preferenceScore * RECIPE_WEIGHTS.userPreference -
+    counts.size * RECIPE_WEIGHTS.ingredientVariety -
+    repeatedCategories *
+      RECIPE_WEIGHTS.categoryRepetition +
+    suitability
   );
 }
 
 function optimizeWeek(pool, days = PLAN_DAYS) {
   if (pool.length < days) {
     throw new Error(
-      "Not enough recipes found. Try more common ingredients."
+      "Not enough recipes found. Try different ingredients."
     );
   }
 
   let bestPlan = null;
   let bestScore = -Infinity;
 
-  for (let attempt = 0; attempt < 15; attempt++) {
+  for (let attempt = 0; attempt < 12; attempt++) {
     const plan = shuffle([...pool]).slice(0, days);
 
     for (let iteration = 0; iteration < 4; iteration++) {
@@ -407,101 +412,6 @@ function optimizeWeek(pool, days = PLAN_DAYS) {
 // MEASUREMENT PARSING
 // ============================================
 
-const FRACTIONS = {
-  "¼": 0.25,
-  "½": 0.5,
-  "¾": 0.75,
-  "⅓": 1 / 3,
-  "⅔": 2 / 3,
-  "⅛": 0.125,
-  "⅜": 0.375,
-  "⅝": 0.625,
-  "⅞": 0.875
-};
-
-const UNITS = {
-  tsp: ["volume", ML_PER_TSP],
-  teaspoon: ["volume", ML_PER_TSP],
-  teaspoons: ["volume", ML_PER_TSP],
-
-  tbsp: ["volume", ML_PER_TBSP],
-  tbs: ["volume", ML_PER_TBSP],
-  tblsp: ["volume", ML_PER_TBSP],
-  tablespoon: ["volume", ML_PER_TBSP],
-  tablespoons: ["volume", ML_PER_TBSP],
-
-  cup: ["volume", ML_PER_CUP],
-  cups: ["volume", ML_PER_CUP],
-
-  "fl oz": ["volume", 29.5735],
-  pint: ["volume", 473.176],
-  pints: ["volume", 473.176],
-  quart: ["volume", 946.353],
-  quarts: ["volume", 946.353],
-  gallon: ["volume", 3785.41],
-  gallons: ["volume", 3785.41],
-
-  ml: ["volume", 1],
-  milliliter: ["volume", 1],
-  milliliters: ["volume", 1],
-  l: ["volume", 1000],
-  liter: ["volume", 1000],
-  liters: ["volume", 1000],
-
-  g: ["weight", 1],
-  gram: ["weight", 1],
-  grams: ["weight", 1],
-  kg: ["weight", 1000],
-  kilogram: ["weight", 1000],
-  kilograms: ["weight", 1000],
-
-  oz: ["weight", G_PER_OZ],
-  ounce: ["weight", G_PER_OZ],
-  ounces: ["weight", G_PER_OZ],
-
-  lb: ["weight", G_PER_LB],
-  lbs: ["weight", G_PER_LB],
-  pound: ["weight", G_PER_LB],
-  pounds: ["weight", G_PER_LB]
-};
-
-const COUNT_UNITS = {
-  clove: "clove",
-  cloves: "clove",
-  bulb: "bulb",
-  bulbs: "bulb",
-  head: "head",
-  heads: "head",
-  leaf: "leaf",
-  leaves: "leaf",
-  can: "can",
-  cans: "can",
-  tin: "tin",
-  tins: "tin",
-  slice: "slice",
-  slices: "slice",
-  piece: "piece",
-  pieces: "piece",
-  bunch: "bunch",
-  bunches: "bunch",
-  packet: "packet",
-  packets: "packet",
-  package: "package",
-  packages: "package",
-  whole: "whole"
-};
-
-const COUNTABLE = new Set([
-  "eggs", "egg white", "lemons", "limes",
-  "onions", "red onions", "carrots",
-  "potatoes", "tomatoes", "celery",
-  "leek", "green pepper", "red pepper",
-  "bell peppers", "swede", "bay leaves",
-  "garlic", "chicken stock cube",
-  "beef stock cube", "vegetable stock cube",
-  "pita bread", "cabbage"
-]);
-
 function parseNumber(value) {
   let text = String(value).trim();
 
@@ -519,17 +429,13 @@ function parseNumber(value) {
     if (part.includes("/")) {
       const [a, b] = part.split("/").map(Number);
 
-      if (!Number.isFinite(a) || !b) {
-        return NaN;
-      }
+      if (!Number.isFinite(a) || !b) return NaN;
 
       total += a / b;
     } else {
       const number = Number(part);
 
-      if (!Number.isFinite(number)) {
-        return NaN;
-      }
+      if (!Number.isFinite(number)) return NaN;
 
       total += number;
     }
@@ -606,61 +512,8 @@ function parseMeasurement(name, raw) {
 }
 
 // ============================================
-// INGREDIENT-SPECIFIC CONVERSIONS
+// SHOPPING QUANTITY CONVERSIONS
 // ============================================
-
-const CUP_WEIGHTS = {
-  "all-purpose flour": 120,
-  flour: 120,
-  "granulated sugar": 200,
-  sugar: 200,
-  rice: 185,
-  "basmati rice": 185,
-  "jasmine rice": 185,
-  butter: 227,
-  "peanut butter": 258,
-  "tomato puree": 245,
-  "tomato sauce": 245,
-  "greek yogurt": 245
-};
-
-const WHOLE_WEIGHTS = {
-  onions: 150,
-  "red onions": 150,
-  carrots: 75,
-  potatoes: 175,
-  tomatoes: 125,
-  celery: 40,
-  leek: 150,
-  lemons: 100,
-  limes: 70,
-  "green pepper": 150,
-  "red pepper": 150,
-  "bell peppers": 150,
-  swede: 500
-};
-
-const CHOPPED_CUP_WEIGHTS = {
-  onions: 160,
-  "red onions": 160,
-  carrots: 128,
-  celery: 101,
-  tomatoes: 180,
-  "green pepper": 149,
-  "red pepper": 149,
-  "bell peppers": 149
-};
-
-const LIQUID_DENSITIES = {
-  milk: 1.03,
-  "whole milk": 1.03,
-  "beef stock": 1.01,
-  "chicken stock": 1.01,
-  "vegetable stock": 1.01,
-  "tomato sauce": 1.04,
-  "olive oil": 0.91,
-  "vegetable oil": 0.92
-};
 
 function normalizeShoppingQuantity(name, parsed) {
   if (
@@ -718,63 +571,7 @@ function normalizeShoppingQuantity(name, parsed) {
 }
 
 // ============================================
-// PACKAGE SIZES
-// ============================================
-
-const PACKAGE_CATALOG = {
-  rice: {
-    type: "weight",
-    packages: [454, 907, 2268, 4536]
-  },
-
-  "basmati rice": {
-    type: "weight",
-    packages: [454, 907, 2268]
-  },
-
-  "jasmine rice": {
-    type: "weight",
-    packages: [454, 907, 2268]
-  },
-
-  "all-purpose flour": {
-    type: "weight",
-    packages: [907, 2268, 4536]
-  },
-
-  "granulated sugar": {
-    type: "weight",
-    packages: [907, 1814, 4536]
-  },
-
-  butter: {
-    type: "weight",
-    packages: [113, 227, 454]
-  },
-
-  pasta: {
-    type: "weight",
-    packages: [454, 907]
-  },
-
-  "olive oil": {
-    type: "volume",
-    packages: [250, 500, 750, 1000]
-  },
-
-  "vegetable oil": {
-    type: "volume",
-    packages: [473, 946, 1893]
-  },
-
-  milk: {
-    type: "volume",
-    packages: [473, 946, 1893, 3785]
-  }
-};
-
-// ============================================
-// BALANCED PACKAGE OPTIMIZATION
+// PACKAGE OPTIMIZATION
 // ============================================
 
 function recommendPackages(required, catalog) {
@@ -833,15 +630,12 @@ function recommendPackages(required, catalog) {
   }
 
   search(0, 0, 0);
-
   return best;
 }
 
 // ============================================
-// DISPLAY FORMATTING
+// GROCERY FORMATTING
 // ============================================
-
-// Round only after ingredient totals are combined.
 
 function formatCookingNumber(value) {
   return String(roundUp(value));
@@ -849,15 +643,11 @@ function formatCookingNumber(value) {
 
 function formatWeight(grams) {
   if (grams >= G_PER_LB) {
-    return (
-      `${formatCookingNumber(grams / G_PER_LB)} lb`
-    );
+    return `${formatCookingNumber(grams / G_PER_LB)} lb`;
   }
 
   if (grams >= G_PER_OZ) {
-    return (
-      `${formatCookingNumber(grams / G_PER_OZ)} oz`
-    );
+    return `${formatCookingNumber(grams / G_PER_OZ)} oz`;
   }
 
   return `${formatCookingNumber(grams)} g`;
@@ -865,15 +655,11 @@ function formatWeight(grams) {
 
 function formatVolume(ml) {
   if (ml < 3 * ML_PER_TSP) {
-    return (
-      `${formatCookingNumber(ml / ML_PER_TSP)} tsp`
-    );
+    return `${formatCookingNumber(ml / ML_PER_TSP)} tsp`;
   }
 
   if (ml < 4 * ML_PER_TBSP) {
-    return (
-      `${formatCookingNumber(ml / ML_PER_TBSP)} tbsp`
-    );
+    return `${formatCookingNumber(ml / ML_PER_TBSP)} tbsp`;
   }
 
   if (ml < 4 * ML_PER_CUP) {
@@ -886,9 +672,7 @@ function formatVolume(ml) {
     }`;
   }
 
-  return (
-    `${formatCookingNumber(ml / 946.353)} qt`
-  );
+  return `${formatCookingNumber(ml / 946.353)} qt`;
 }
 
 function formatCount(amount, unit) {
@@ -929,10 +713,7 @@ function formatQuantity(parsed) {
   }
 
   if (parsed.type === "count") {
-    return formatCount(
-      parsed.amount,
-      parsed.unit
-    );
+    return formatCount(parsed.amount, parsed.unit);
   }
 
   return "";
@@ -944,21 +725,15 @@ function formatPackageTotal(total, type) {
   }
 
   if (total >= 3785.41) {
-    return (
-      `${formatCookingNumber(total / 3785.41)} gallons`
-    );
+    return `${formatCookingNumber(total / 3785.41)} gallons`;
   }
 
   if (total >= 946.353) {
-    return (
-      `${formatCookingNumber(total / 946.353)} qt`
-    );
+    return `${formatCookingNumber(total / 946.353)} qt`;
   }
 
   if (total >= 473.176) {
-    return (
-      `${formatCookingNumber(total / 473.176)} pints`
-    );
+    return `${formatCookingNumber(total / 473.176)} pints`;
   }
 
   return `${formatCookingNumber(total)} mL`;
@@ -978,7 +753,6 @@ function renderGroceryList() {
     for (const ingredient of getIngredients(meal)) {
       const name = ingredient.name;
 
-      // Remove ordinary cooking water.
       if (isCookingWater(name)) continue;
 
       if (!groceries.has(name)) {
@@ -1028,7 +802,6 @@ function renderGroceryList() {
       }
     }
 
-    // Recommend a practical package quantity.
     if (catalog && required > 0) {
       const recommendation = recommendPackages(
         required,
@@ -1045,7 +818,6 @@ function renderGroceryList() {
       }
     }
 
-    // Combine compatible ingredient quantities.
     const totals = new Map();
 
     for (const parsed of remaining) {
@@ -1067,7 +839,6 @@ function renderGroceryList() {
     }
 
     const item = document.createElement("li");
-
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
 
@@ -1090,14 +861,245 @@ function renderGroceryList() {
 // GENERATE WEEK
 // ============================================
 
+// ============================================
+// WEEKLY PLAN ANALYSIS
+// ============================================
+
+const RANDOM_COMPARISONS = 200;
+
+// Count how often each ingredient appears
+// across different recipes.
+function calculateIngredientMetrics(plan) {
+  const counts = new Map();
+
+  for (const meal of plan) {
+    for (const name of ingredientNames(meal)) {
+      if (isCookingWater(name)) continue;
+
+      counts.set(
+        name,
+        (counts.get(name) || 0) + 1
+      );
+    }
+  }
+
+  const unique = counts.size;
+
+  const reused = [...counts.values()].filter(
+    count => count >= 2
+  ).length;
+
+  return {
+    unique,
+    reused,
+    reusePercentage: unique
+      ? (reused / unique) * 100
+      : 0
+  };
+}
+
+// Estimate unused package quantities.
+//
+// Only ingredients with configured package
+// sizes and compatible measurements count.
+// This does not estimate spoilage or actual
+// food waste.
+
+function calculatePackageLeftovers(plan) {
+  const requirements = new Map();
+
+  for (const meal of plan) {
+    for (const ingredient of getIngredients(meal)) {
+      const name = ingredient.name;
+
+      if (isCookingWater(name)) continue;
+
+      const catalog = PACKAGE_CATALOG[name];
+      if (!catalog) continue;
+
+      const parsed = parseMeasurement(
+        name,
+        ingredient.measure
+      );
+
+      if (!parsed) continue;
+
+      const normalized = normalizeShoppingQuantity(
+        name,
+        parsed
+      );
+
+      if (normalized.type !== catalog.type) {
+        continue;
+      }
+
+      requirements.set(
+        name,
+        (requirements.get(name) || 0) +
+          normalized.amount
+      );
+    }
+  }
+
+  let purchased = 0;
+  let unused = 0;
+  let measuredIngredients = 0;
+
+  // Weight and volume must not be added together.
+  // Calculate a separate ratio for each ingredient,
+  // then average those ratios.
+
+  for (const [name, required] of requirements) {
+    const catalog = PACKAGE_CATALOG[name];
+
+    const recommendation = recommendPackages(
+      required,
+      catalog
+    );
+
+    if (!recommendation || !recommendation.total) {
+      continue;
+    }
+
+    const leftover = Math.max(
+      0,
+      recommendation.total - required
+    );
+
+    unused += leftover / recommendation.total;
+    purchased += 1;
+    measuredIngredients++;
+  }
+
+  return {
+    percentage: purchased
+      ? (unused / purchased) * 100
+      : null,
+    measuredIngredients
+  };
+}
+
+// Generate a random seven-meal combination
+// without changing the user's actual plan.
+function createRandomPlan(pool, days) {
+  return shuffle([...pool]).slice(0, days);
+}
+
+// Compare the selected plan with random plans
+// from the same recipe pool.
+function compareWithRandomPlans(
+  plan,
+  pool,
+  samples = RANDOM_COMPARISONS
+) {
+  if (pool.length < plan.length || !plan.length) {
+    return null;
+  }
+
+  let totalUnique = 0;
+  let totalReuse = 0;
+
+  for (let i = 0; i < samples; i++) {
+    const randomPlan = createRandomPlan(
+      pool,
+      plan.length
+    );
+
+    const metrics = calculateIngredientMetrics(
+      randomPlan
+    );
+
+    totalUnique += metrics.unique;
+    totalReuse += metrics.reusePercentage;
+  }
+
+  return {
+    averageUnique: totalUnique / samples,
+    averageReuse: totalReuse / samples,
+    samples
+  };
+}
+
+// Display the results in the dashboard.
+function renderPlanAnalysis() {
+  const section = $("plan-analysis");
+
+  if (!section || weeklyPlan.length === 0) {
+    if (section) section.hidden = true;
+    return;
+  }
+
+  const metrics = calculateIngredientMetrics(
+    weeklyPlan
+  );
+
+  const leftovers = calculatePackageLeftovers(
+    weeklyPlan
+  );
+
+  const comparison = compareWithRandomPlans(
+    weeklyPlan,
+    recipePool
+  );
+
+  $("reuse-percentage").textContent =
+    `${Math.round(metrics.reusePercentage)}%`;
+
+  $("unique-ingredients").textContent =
+    metrics.unique;
+
+  $("reused-ingredients").textContent =
+    metrics.reused;
+
+  $("package-leftovers").textContent =
+    leftovers.percentage === null
+      ? "N/A"
+      : `${Math.round(leftovers.percentage)}%`;
+
+  $("optimized-count").textContent =
+    `${metrics.unique} ingredients`;
+
+  if (comparison) {
+    $("random-count").textContent =
+      `${comparison.averageUnique.toFixed(1)} ingredients`;
+
+    const difference =
+      comparison.averageUnique - metrics.unique;
+
+    const summary = $("comparison-summary");
+
+    if (difference > 0) {
+      summary.textContent =
+        `Your plan uses approximately ` +
+        `${difference.toFixed(1)} fewer distinct ` +
+        `ingredients than the average of ` +
+        `${comparison.samples} random plans.`;
+    } else if (difference < 0) {
+      summary.textContent =
+        `Your plan uses approximately ` +
+        `${Math.abs(difference).toFixed(1)} more ` +
+        `distinct ingredients than the random average.`;
+    } else {
+      summary.textContent =
+        "Your plan uses approximately the same " +
+        "number of ingredients as random plans.";
+    }
+  } else {
+    $("random-count").textContent = "N/A";
+
+    $("comparison-summary").textContent =
+      "Not enough recipes for comparison.";
+  }
+
+  section.hidden = false;
+}
+
 async function generateWeek(random = false) {
   if (isGenerating) return;
 
-  const input = $("ingredient-input");
-
   const requested = random
     ? []
-    : input.value
+    : $("ingredient-input").value
         .split(",")
         .map(normalizeIngredient)
         .filter(Boolean);
@@ -1121,10 +1123,13 @@ async function generateWeek(random = false) {
       ? shuffle([
           "chicken", "beef", "potato", "rice",
           "tomato", "salmon", "pork", "egg"
-        ]).slice(0, 5)
+        ]).slice(0, 3)
       : requested;
 
-    const pool = await buildRecipePool(terms);
+    const pool = await buildRecipePool(
+      terms,
+      random ? RANDOM_RECIPES : MAX_RECIPES
+    );
 
     preferredIngredients = requested;
 
@@ -1135,17 +1140,16 @@ async function generateWeek(random = false) {
 
     renderWeek();
     renderGroceryList();
+    renderPlanAnalysis();
 
     setStatus("Your weekly meal plan is ready!");
   } catch (error) {
     console.error(error);
-
     setStatus(
       error.message || "Could not generate meals."
     );
   } finally {
     isGenerating = false;
-
     $("find-recipes").disabled = false;
     $("random-week").disabled = false;
   }
@@ -1179,7 +1183,6 @@ function findSwapOptions(dayIndex) {
 
 function showSwapOptions(dayIndex) {
   const container = $(`swap-options-${dayIndex}`);
-
   if (!container) return;
 
   container.replaceChildren();
@@ -1202,6 +1205,7 @@ function showSwapOptions(dayIndex) {
 
       renderWeek();
       renderGroceryList();
+      renderPlanAnalysis();
 
       setStatus(
         "Meal swapped. Grocery list updated!"
@@ -1213,53 +1217,41 @@ function showSwapOptions(dayIndex) {
 }
 
 // ============================================
-// DISPLAY WEEKLY PLAN
+// CALENDAR DISPLAY
 // ============================================
 
 function renderWeek() {
-  
-
   const results = $("recipe-results");
   results.replaceChildren();
 
   weeklyPlan.forEach((meal, index) => {
-
-    // Calendar day container
     const card = document.createElement("div");
     card.className = "meal-card";
 
-    // Day heading
     const dayHeader = document.createElement("div");
     dayHeader.className = "meal-day";
     dayHeader.textContent = DAYS[index];
 
-    // Recipe image
     const image = document.createElement("img");
     image.src = meal.strMealThumb;
     image.alt = meal.strMeal;
     image.loading = "lazy";
 
-    // Content container
     const content = document.createElement("div");
     content.className = "meal-content";
 
-    // Recipe title
     const title = document.createElement("h3");
     title.textContent = meal.strMeal;
 
-    // Recipe link
     const link = document.createElement("a");
-
     link.href =
       `https://www.themealdb.com/meal/${
         encodeURIComponent(meal.idMeal)
       }`;
-
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = "View Recipe";
 
-    // Swap button
     const swapButton = document.createElement("button");
     swapButton.type = "button";
     swapButton.textContent = "Swap Meal";
@@ -1268,7 +1260,6 @@ function renderWeek() {
       showSwapOptions(index);
     });
 
-    // Swap options
     const swapContainer = document.createElement("div");
     swapContainer.id = `swap-options-${index}`;
     swapContainer.className = "swap-options";
@@ -1290,18 +1281,12 @@ function renderWeek() {
   });
 }
 
-
 // ============================================
 // RESET
 // ============================================
 
 function resetRecipes() {
-  if (isGenerating) {
-    setStatus(
-      "Please wait for generation to finish."
-    );
-    return;
-  }
+  if (isGenerating) return;
 
   weeklyPlan = [];
   recipePool = [];
@@ -1314,6 +1299,7 @@ function resetRecipes() {
   setStatus(
     "Choose ingredients to generate a new week."
   );
+  renderPlanAnalysis();
 }
 
 // ============================================

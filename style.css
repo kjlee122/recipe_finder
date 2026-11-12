@@ -162,3 +162,89 @@
     height: 200px;
   }
 }
+
+/* =====================================
+   WEEKLY PLAN ANALYSIS
+===================================== */
+
+#plan-analysis {
+  margin-top: 30px;
+  padding: 24px;
+  background: #f7faf7;
+  border: 1px solid #dce8dc;
+  border-radius: 14px;
+}
+
+#plan-analysis[hidden] {
+  display: none;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.analysis-card {
+  padding: 18px;
+  background: white;
+  border: 1px solid #e1e7e1;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.analysis-card h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #345b3d;
+}
+
+.analysis-card p {
+  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: bold;
+  color: #285b38;
+}
+
+.analysis-card small {
+  color: #666;
+  font-size: 12px;
+}
+
+.comparison-results {
+  margin-top: 24px;
+  padding: 18px;
+  background: white;
+  border-radius: 10px;
+}
+
+.comparison-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+#comparison-summary {
+  margin-top: 16px;
+  font-weight: 600;
+  color: #285b38;
+}
+
+@media (max-width: 1000px) {
+  .analysis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .analysis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #plan-analysis {
+    padding: 16px;
+  }
+}

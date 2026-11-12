@@ -91,6 +91,57 @@
 
     </section>
 
+<section id="plan-analysis" hidden>
+  <h2>Weekly Plan Analysis</h2>
+
+  <p>
+    See how your optimized meal plan compares
+    with randomly selected meals.
+  </p>
+
+  <div class="analysis-grid">
+    <div class="analysis-card">
+      <h3>Ingredient Reuse</h3>
+      <p id="reuse-percentage">—</p>
+      <small>Ingredients used in multiple meals</small>
+    </div>
+
+    <div class="analysis-card">
+      <h3>Unique Ingredients</h3>
+      <p id="unique-ingredients">—</p>
+      <small>Across the entire week</small>
+    </div>
+
+    <div class="analysis-card">
+      <h3>Reused Ingredients</h3>
+      <p id="reused-ingredients">—</p>
+      <small>Used in two or more recipes</small>
+    </div>
+
+    <div class="analysis-card">
+      <h3>Estimated Package Leftovers</h3>
+      <p id="package-leftovers">—</p>
+      <small>For ingredients with known package sizes</small>
+    </div>
+  </div>
+
+  <div class="comparison-results">
+    <h3>Optimized vs. Random Meal Plans</h3>
+
+    <div class="comparison-row">
+      <span>Optimized plan</span>
+      <strong id="optimized-count">—</strong>
+    </div>
+
+    <div class="comparison-row">
+      <span>Average random plan</span>
+      <strong id="random-count">—</strong>
+    </div>
+
+    <p id="comparison-summary"></p>
+  </div>
+</section>
+
 
     <!-- GROCERY LIST -->
 
@@ -122,6 +173,7 @@
 
   <!-- JAVASCRIPT -->
 
+  <script src="ingredients.js"></script>
   <script src="script.js"></script>
 
 </body>
