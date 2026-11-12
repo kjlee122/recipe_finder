@@ -1,32 +1,128 @@
-index.html
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Grocery Recipe Finder</title>
+
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+  <title>Weekly Meal Planner</title>
+
   <link rel="stylesheet" href="style.css">
-  <script src="script.js" defer></script>
 </head>
+
 <body>
+
+  <header>
+    <h1>Weekly Meal Planner</h1>
+
+    <p>
+      Plan your meals, reuse ingredients,
+      and reduce food waste!
+    </p>
+  </header>
+
   <main>
-    <h1>Grocery Recipe Finder</h1>
-    <h2>Sample Grocery Store</h2>
 
-    <h3>Available Ingredients</h3>
-    <ul id="inventory-list"></ul>
+    <!-- INGREDIENT SELECTION -->
 
-    
-<button id="find-recipes">Find Recipes</button>
-<button id="reset-button">Reset</button>
+    <section id="ingredient-selection">
 
-    
+      <h2>Choose Your Ingredients</h2>
 
-    <h2>Matching Recipes</h2>
-    <div id="recipe-results">
-      <p>Click the button to find recipes.</p>
-    </div>
+      <p>
+        Enter ingredients you would like to include
+        in your meals, separated by commas.
+      </p>
+
+      <label for="ingredient-input">
+        Preferred Ingredients:
+      </label>
+
+      <input
+        type="text"
+        id="ingredient-input"
+        placeholder="e.g. chicken, rice, onion"
+      >
+
+      <div class="button-group">
+
+        <button
+          type="button"
+          id="find-recipes">
+          Generate Week
+        </button>
+
+        <button
+          type="button"
+          id="random-week">
+          Random Week
+        </button>
+
+        <button
+          type="button"
+          id="reset-button">
+          Reset
+        </button>
+
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+
+    </section>
+
+
+    <!-- WEEKLY MEAL PLAN -->
+
+    <section id="weekly-plan">
+
+      <h2>Your Weekly Meal Plan</h2>
+
+      <p>
+        Your meals are selected to share ingredients
+        while providing variety throughout the week.
+      </p>
+
+      <div id="recipe-results">
+        <!-- JavaScript generates meal cards here -->
+      </div>
+
+    </section>
+
+
+    <!-- GROCERY LIST -->
+
+    <section id="grocery-section">
+
+      <h2>Your Grocery List</h2>
+
+      <p>
+        Ingredients from your weekly meals
+        will appear here automatically.
+      </p>
+
+      <ul id="grocery-list">
+        <!-- JavaScript generates grocery items here -->
+      </ul>
+
+    </section>
+
   </main>
+
+
+  <footer>
+    <p>
+      Weekly Meal Planner |
+      Powered by TheMealDB
+    </p>
+  </footer>
+
+
+  <!-- JAVASCRIPT -->
+
+  <script src="script.js"></script>
+
 </body>
 </html>

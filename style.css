@@ -1,37 +1,164 @@
-style.css
 
-body {
-  font-family: Arial, sans-serif;
-  background-color: #f5f7f5;
-  margin: 0;
-  padding: 30px;
-  color: #26352a;
+#recipe-results {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit, minmax(240px, 1fr)
+  );
+  gap: 20px;
+  margin-top: 20px;
 }
 
-main {
-  max-width: 700px;
-  margin: 0 auto;
+.meal-card {
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.meal-card img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.meal-card button {
+  display: block;
+  margin-top: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.meal-card a {
+  display: block;
+  margin-top: 10px;
+}
+
+[id^="swap-options-"] button {
+  width: 100%;
+  text-align: left;
+  margin-top: 6px;
+}
+
+#grocery-list {
+  columns: 2;
+  padding-left: 24px;
+}
+
+#status {
+  margin-top: 12px;
+}
+
+/* =====================================
+   WEEKLY CALENDAR
+===================================== */
+
+#recipe-results {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+  align-items: stretch;
+}
+
+.meal-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
   background: white;
-  padding: 30px;
+  border: 1px solid #ddd;
   border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
-button {
-  background: #287a46;
+.meal-day {
+  background: #e8f2e9;
+  color: #285b38;
+  padding: 12px 6px;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.meal-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+.meal-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  padding: 12px;
+}
+
+.meal-content h3 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.meal-content a {
+  display: block;
+  margin-top: auto;
+  color: #285b38;
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.meal-content button {
+  width: 100%;
+  padding: 9px 6px;
+  margin: 0;
+  background: #285b38;
   color: white;
-  padding: 12px 20px;
   border: none;
   border-radius: 6px;
   cursor: pointer;
 }
 
-button:hover {
-  background: #1d5d35;
+.meal-content button:hover {
+  background: #1d4429;
 }
 
-.recipe-card {
-  border: 1px solid #ddd;
-  padding: 15px;
-  margin-top: 12px;
-  border-radius: 8px;
+.swap-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.swap-options button {
+  font-size: 12px;
+  background: #edf3ed;
+  color: #285b38;
+  border: 1px solid #c9dccb;
+  text-align: left;
+}
+
+/* Tablet: two-column calendar */
+@media (max-width: 1100px) {
+  #recipe-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .meal-card img {
+    height: 180px;
+  }
+}
+
+/* Mobile: one day per row */
+@media (max-width: 600px) {
+  #recipe-results {
+    grid-template-columns: 1fr;
+  }
+
+  .meal-card img {
+    height: 200px;
+  }
 }
