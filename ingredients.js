@@ -407,3 +407,62 @@ const PACKAGE_CATALOG = {
     packages: [473, 946, 1893, 3785]
   }
 };
+
+ // ============================================
+ // RECIPE SEARCH TERMS
+ // ============================================
+
+const RECIPE_SEARCH_TERMS = {
+  pasta: [
+    "pasta",
+    "spaghetti",
+    "penne",
+    "macaroni",
+    "lasagna",
+    "linguine",
+    "fettuccine",
+    "alfredo"
+  ],
+
+  noodles: [
+    "noodles",
+    "noodle",
+    "ramen",
+    "udon",
+    "lo mein",
+    "chow mein",
+    "stir fry"
+  ],
+
+  chicken: [
+    "chicken"
+  ],
+
+  beef: [
+    "beef"
+  ],
+
+  rice: [
+    "rice",
+    "risotto"
+  ],
+
+  potatoes: [
+    "potato",
+    "potatoes"
+  ],
+
+  seafood: [
+    "salmon",
+    "shrimp",
+    "prawns",
+    "fish"
+  ],
+
+  vegetarian: [
+    "vegetarian",
+    "vegetable",
+    "lentil",
+    "chickpea"
+  ]
+};

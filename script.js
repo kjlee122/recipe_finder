@@ -221,13 +221,49 @@ async function fetchJSON(url) {
   return response.json();
 }
 
-async function searchIngredient(name) {
-  const data = await fetchJSON(
-    `${API}/filter.php?i=${encodeURIComponent(name)}`
-  );
 
-  return data.meals || [];
+async function searchIngredient(name) {
+  const term = name.toLowerCase().trim();
+
+  // Retrieve related search terms from ingredients.js.
+  const searchTerms = RECIPE_SEARCH_TERMS[term] || [term];
+
+  // Search the exact ingredient and related recipe names.
+  const requests = [
+    fetchJSON(
+      `${API}/filter.php?i=${encodeURIComponent(term)}`
+    )
+  ];
+
+  for (const searchTerm of searchTerms) {
+    requests.push(
+      fetchJSON(
+        `${API}/search.php?s=${encodeURIComponent(searchTerm)}`
+      )
+    );
+  }
+
+  const results = await Promise.allSettled(requests);
+
+  const unique = new Map();
+
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+
+    for (const meal of result.value.meals || []) {
+      unique.set(meal.idMeal, meal);
+
+      // Name searches return full recipe details,
+      // so cache those instead of downloading again.
+      if (meal.strIngredient1) {
+        recipeCache.set(meal.idMeal, meal);
+      }
+    }
+  }
+
+  return [...unique.values()];
 }
+
 
 async function fetchMeal(id) {
   if (recipeCache.has(id)) {
